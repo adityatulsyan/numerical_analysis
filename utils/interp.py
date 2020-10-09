@@ -14,6 +14,22 @@ class Poly(object):
     | x^2 - 4      | Poly([2,0,-4]) |
     """
 
+    def __str__(self):
+        n = len(self.coeffs)
+        poly = f'{self.coeffs[0]}x^{n-1}'
+        for i in range(1,n):
+            if self.coeffs[i] >= 0:
+                poly += f' + {self.coeffs[i]} x^{n-1-i}'
+            else:
+                poly += f' - {-self.coeffs[i]} x^{n-1-i}'
+
+        if n > 1:
+            if self.coeffs[-1] >= 0:
+                poly += f' + {self.coeffs[i]}'
+            else:
+                poly += f' - {-self.coeffs[i]}'
+        return poly
+
     def __init__(self, coeffs):
         self.coeffs = coeffs
 
@@ -62,9 +78,34 @@ class Points(object):
         self.fx_ = fx_
         self.pol = Poly([0])
 
+        assert (len(self.x) == len(self.fx))
+        if fx_:
+            assert (len(self.x) == len(self.fx_))
+
     @property
     def sol(self):
         return self.pol.coeffs
+
+    def f_(self, f, n, x):
+        """
+        Numerically compute nth derivative of any given function
+        This is numerically VERY unstable, please do not change the h value
+        Works reliably for n < 15
+
+        Inputs:
+        * f: function
+        * n: order of derivative
+        * x: point at which to evaluate the derivative
+        """
+
+        # nCk
+        choose = lambda n,k: 0 if k == 0 else n * choose(n-1,k-1) / k
+
+        h = 0.3
+        result = f(x+(n/2)*h)
+        for k in range(1,n+1):
+            result  += pow(-1,k)*choose(n,k)*f(x+(n/2 - k)*h)
+        return result / pow(h,n)
 
     def lagrange(self):
         lagrange_coeffs = []
@@ -82,13 +123,38 @@ class Points(object):
             poly.scalar_mult(coeff)
             final_poly = final_poly + poly
 
-        self.lagrange_coeffs = lagrange_coeffs
+        self.coeffs = lagrange_coeffs
+        self.pol = final_poly
+
+    def newton_divided_diff(self):
+        newton_coeffs = []
+        final_poly = Poly([0])
+
+        delf = lambda lst: self.fx[lst[0]] if len(lst) == 1 else (delf(lst[1:])-delf(lst[:-1]))/(self.x[lst[-1]] - self.x[lst[0]])
+
+        lst = []
+        poly = Poly([1])
+        for i in range(len(self.x)):
+            if i > 0:
+                poly = poly * Poly([1,-self.x[i-1]])
+            lst.append(i)
+            coeff = delf(lst)
+
+            temp_poly = Poly(poly.coeffs)
+            temp_poly.scalar_mult(coeff)
+
+            final_poly = final_poly + temp_poly
+            newton_coeffs.append(coeff)
+
+        self.coeffs = newton_coeffs
         self.pol = final_poly
 
     def interpolate(self, method):
         """Wrapper method that calls an appropriate mathod with the correct parameters"""
         if method.lower() == 'lagrange':
             self.lagrange()
+        elif method.lower() == 'newton':
+            self.newton_divided_diff()
 
     def table(self, num_pts=500):
         """Return a table of polynomial values for plotting"""
@@ -99,12 +165,25 @@ class Points(object):
         poly_x = np.linspace(poly_min,poly_max,num_pts)
         return poly_x, [self.pol.at(x) for x in poly_x]
 
-    def visualize(self, num_pts=500):
+    def error_table(self, actual_f, eps, xs):
+        n = len(self.x)
+        error_base = self.f_(actual_f, n+1, eps)
+        errors = []
+        for xval in xs:
+            error = error_base
+            for x in self.x:
+                error *= (xval-x)/np.math.factorial(n+1)
+            errors.append(error)
+        return errors
+
+    def visualize(self, actual_f, eps, num_pts=500):
         """
         Visualize a given solution
         Displays the original points along with the interpolated polynomial
         """
         poly_x, poly_y = self.table(num_pts)
-        plt.plot(poly_x, poly_y, c='b', zorder=1)
-        plt.scatter(self.x, self.fx, c='r', zorder=2)
+        error_y = self.error_table(actual_f, eps, poly_x)
+        plt.plot(poly_x, poly_y, c='b', zorder=1, label='intepolating polynomial')
+        plt.scatter(self.x, self.fx, c='r', zorder=2, label='original data')
+        plt.legend(loc="upper left")
         plt.show()
